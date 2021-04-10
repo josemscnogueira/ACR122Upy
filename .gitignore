@@ -1,0 +1,8 @@
+# Anywhere
+__pycache__
+
+# Root folder
+.vscode/
+test/
+dist/
+.python-version
