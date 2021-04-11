@@ -62,12 +62,12 @@ pushd $HERE > /dev/null
     LINUX_DISTRO=$(awk -F= '/^NAME/{print $2}' /etc/os-release)
     if echo $LINUX_DISTRO | grep -iq "ubuntu"
     then
-        sudo apt install -y pcscd \
-                            libacsccid1 \
-                            pcsc-tools \
-                            libpcsclite1 \
-                            libnfc-bin \
-                            swig libpcsclite-dev
+        # Packages needed by card reader services
+        sudo apt install -y pcscd
+
+        # Packages needed by pyscard
+        sudo apt install -y swig \
+                            libpcsclite-dev
     fi
 
     PYTHON_VERSION="$(cat development/.python-version-reference | grep -v env)"
