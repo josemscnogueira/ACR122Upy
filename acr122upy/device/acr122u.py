@@ -3,7 +3,7 @@
 # ##############################################################################
 from collections.abc import Iterable
 from collections     import namedtuple
-from time            import process_time
+from time            import time, sleep
 import weakref
 
 
@@ -21,20 +21,24 @@ class ACR122u:
     """
         Class that wraps the ACR122U device and associated functionality
     """
-    __monitor      = { 'reader' : ReaderMonitor(),
-                       'card'   : CardMonitor()  }
+    __monitor:dict = None
     __filter:str   = None
     __reader       = None
     __card         = None
 
-    def __init__(self, device='ACR122U'):
+    def __init__(self, device='ACR122U', period=1):
         """
             Initializes device reference to the first device listed as ACR122U
             If no device is found, None is assigned to id
         """
         self.__filter  = device
+        self.__monitor = { 'reader' : ReaderMonitor(period=period),
+                           'card'   : CardMonitor()               ,
+                           'period' : period                      ,
+                           'last'   : time()                      }
         self.__monitor['reader'].addObserver(ACR122u.__ReaderObserver(self))
         self.__monitor['card'  ].addObserver(ACR122u.__CardObserver(  self))
+
 
     def update(self, /, rnew:Iterable = tuple(), rold:Iterable = tuple()):
         """
@@ -42,6 +46,8 @@ class ACR122u:
             Remove readers from rold
                 - As long as they match the __filter attribute
         """
+        self._refreshed()
+
         for reader in rnew:
             if not self.__filter or self.__filter in reader.name:
                 self.__reader = reader
@@ -57,6 +63,8 @@ class ACR122u:
             This is managed internall by the device. In this case, we are
             guaranteed that only one device is added or removed
         """
+        self._refreshed()
+
         if self.__reader:
             # Add cards from the some reader
             list_cards = list(filter(lambda x: self.__reader.name == x.reader, cnew))
@@ -75,14 +83,33 @@ class ACR122u:
                 print(f'Removing card {list_cards[0]}')
 
 
+    def _refreshed(self):
+        """
+            This tells the instance that the monitor was updated,
+            no timeouts can occur between the update and update+period
+        """
+        self.__monitor['last'] = time()
+
+
+    def _stall(self):
+        """
+            the instance sleeps until last+period
+        """
+        t = self.__monitor['last'] + self.__monitor['period'] - time()
+        if t > 0:
+            sleep(t)
+
+
     @property
     def reader(self):
         return self.__reader
 
     def execute(self, command, /, timeout = 20):
-        t_start = process_time()
+        self._stall()
 
-        while process_time() < timeout:
+        t_start = time()
+
+        while (time() - t_start) < timeout:
             if self.__card:
                 self.__card.connection = self.__card.createConnection()
                 self.__card.connection.connect()
