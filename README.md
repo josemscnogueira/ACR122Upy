@@ -1,4 +1,7 @@
-# Problem with unlisted device
+# Work in Process...
+
+
+## Problem with unlisted (empty) device on Linux
 
 ```
 sudo nfc-scan-device -v
@@ -24,12 +27,12 @@ sudo modprobe -r pn533
 sudo modprobe -r nfc
 ```
 
-Needed drivers
+## Needed driver
 ```
 sudo apt install -y pcscd libacsccid1
 ```
 
-Needed packages for pyscard:
+## Needed packages for pyscard:
 ```
     sudo apt install -y swig libpcsclite-dev
 ```
