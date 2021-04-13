@@ -169,6 +169,35 @@ class ACR122u:
     def get_ats(self):
         return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x01, 0x00, 0x00]))
 
+    def load_auth_key(self, key:list[int], /, key_number:int=0x00):
+        """
+            Loads authentication key into the reader volatile memory
+            The key is a byte list (integeres) with length 6
+            Possible key numbers are 0 or 1. There are two volatile memory addresses in this reader
+        """
+        assert isinstance(key, list)
+        assert len(key) == 6
+        assert all(map(lambda x: isinstance(x, int), key))
+        assert key_number == 0 or key_number == 1
+
+        return ACR122u.parse_response(self.execute([0xFF, 0x82, 0x00, key_number, 0x06] + key))
+
+
+    def auth(self, block:int, key_type:int, /, key_number:int=0x00):
+        """
+            According the documentation:
+                This command uses the keys stored in the reader to do
+                authentication with the MIFARE 1K/4K card (PICC). Two types of
+                authentication keys are used: TYPE_A and TYPE_B.
+
+            Authenticates (card) with the key loaded into memory
+                - Memory slot is given by the key_number
+                - block is the memory sector we which to unlock in the card
+                - key_type: TYPE_A = 0, TYPE_B = 1
+        """
+        return ACR122u.parse_response(self.execute([0xFF, 0x86, 0x00 , 0x00           , 0x05] + \
+                                                   [0x01, 0x00, block, 0x60 + key_type, key_number]))
+
 
     @property
     def firmware(self):

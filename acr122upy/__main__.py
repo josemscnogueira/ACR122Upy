@@ -20,6 +20,9 @@ def main():
     print('uid      =', reader.get_uid())
     print('ats      =', reader.get_ats())
 
+    print('load_auth_key =', reader.load_auth_key([0x00] * 6))
+    print('auth ='         , reader.auth(0, 0))
+
     if arguments.getuid:
         reader.info()
 
