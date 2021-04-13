@@ -15,10 +15,10 @@ def main():
 
     # Added reader
     reader = ACR122u()
-    sleep(1)
-
-
-    reader.info()
+    print('firmware =', reader.firmware)
+    print('firmware =', reader.firmware)
+    print('uid      =', reader.get_uid())
+    print('ats      =', reader.get_ats())
 
     if arguments.getuid:
         reader.info()

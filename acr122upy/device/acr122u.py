@@ -14,7 +14,20 @@ from smartcard.System           import readers
 from smartcard.ReaderMonitoring import ReaderObserver, ReaderMonitor
 from smartcard.CardMonitoring   import CardMonitor   , CardObserver
 from smartcard.util             import toHexString
+from smartcard.ATR              import ATR
 
+
+
+_PARSER_CARD:dict = \
+{
+    (0x00, 0x01): "MIFARE Classic 1K",
+    (0x00, 0x02): "MIFARE Classic 4K",
+    (0x00, 0x03): "MIFARE Ultralight",
+    (0x00, 0x26): "MIFARE Mini",
+    (0xF0, 0x04): "Topaz and Jewel",
+    (0xF0, 0x11): "FeliCa 212K",
+    (0xF0, 0x11): "FeliCa 424K"
+}
 
 
 class ACR122u:
@@ -25,6 +38,7 @@ class ACR122u:
     __filter:str   = None
     __reader       = None
     __card         = None
+    __firmware:str = None
 
     def __init__(self, device='ACR122U', period=1):
         """
@@ -51,7 +65,7 @@ class ACR122u:
         for reader in rnew:
             if not self.__filter or self.__filter in reader.name:
                 self.__reader = reader
-                print(f'Added reader {self.__reader}')
+                print(f'Added   reader {self.__reader}')
         for reader in rold:
             if not self.__filter or self.__filter in reader.name:
                 print(f'Removed reader {self.__reader}')
@@ -71,8 +85,9 @@ class ACR122u:
             assert len(list_cards) <= 1
 
             for card in list_cards:
+                card.type   = _PARSER_CARD.get(tuple(card.atr[-7:-5]), 'UNKNOWN')
                 self.__card = card
-                print(f'Adding   card {card}')
+                print(f'Added   card{card.__dict__}')
 
             # Remove cards if the card is inserted
             list_cards = list(filter(lambda x: x == self.__card, cold))
@@ -80,7 +95,7 @@ class ACR122u:
 
             if len(list_cards) == 1:
                 self.__card = None
-                print(f'Removing card {list_cards[0]}')
+                print(f'Removed card {list_cards[0]}')
 
 
     def _refreshed(self):
@@ -128,11 +143,6 @@ class ACR122u:
             else:
                 raise Exception('Fatal error')
 
-    def info(self):
-        cmd_getdata = namedtuple('get_data', ['cmdtype', 'ins', 'p1', 'p2', 'le'] )
-
-        print("get uid = ", ACR122u.parse_response(self.execute(list(cmd_getdata(0xFF, 0xCA, 0x00, 0x00, 0x00)))))
-        print("get ats = ", ACR122u.parse_response(self.execute(list(cmd_getdata(0xFF, 0xCA, 0x01, 0x00, 0x00)))))
 
     @staticmethod
     def parse_response(response):
@@ -148,6 +158,31 @@ class ACR122u:
             message = 'Unknown'
 
         return cmd_response(toHexString(data), toHexString([sw1]), toHexString([sw2]), message)
+
+
+    # ##########################################################################
+    # Commands
+    # ##########################################################################
+    def get_uid(self):
+        return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x00, 0x00, 0x00]))
+
+    def get_ats(self):
+        return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x01, 0x00, 0x00]))
+
+
+    @property
+    def firmware(self):
+        """
+            Gets firmware
+            If firmware was not available, it will be retrived.
+            Due to restrictions of pyscard or the device itself, we need to have a
+            tag connected, in order to obtain the device firmware
+        """
+        if self.__firmware is None:
+            result = ACR122u.parse_response(self.execute([0xFF, 0x00, 0x48, 0x00, 0x00]))
+            self.__firmware = ''.join(chr(int(x, base=16)) for x in (result.data.split(' ') + [result.sw1, result.sw2]))
+
+        return self.__firmware
 
 
     # ##########################################################################
