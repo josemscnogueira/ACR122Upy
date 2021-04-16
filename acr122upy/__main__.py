@@ -19,12 +19,18 @@ def main():
     print('firmware =', reader.firmware)
     print('uid      =', reader.get_uid())
     print('ats      =', reader.get_ats())
+    print('\n\n\n')
 
-    print('load_auth_key =', reader.load_auth_key([0x00] * 6))
-    print('auth ='         , reader.auth(0, 0))
+    authorization = reader.auth([0xFF] * 6, 0, 0)
+    print('auth ='     , authorization)
+    print('\n\n\n')
 
-    if arguments.getuid:
-        reader.info()
+    if authorization[-1] == 'Success':
+        for i in range(16):
+            print(f'block[{i}] =', reader.block_read(i))
+
+    #if arguments.getuid:
+    #    reader.info()
 
 
 """

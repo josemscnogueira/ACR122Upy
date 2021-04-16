@@ -20,13 +20,14 @@ from smartcard.ATR              import ATR
 
 _PARSER_CARD:dict = \
 {
-    (0x00, 0x01): "MIFARE Classic 1K",
-    (0x00, 0x02): "MIFARE Classic 4K",
-    (0x00, 0x03): "MIFARE Ultralight",
-    (0x00, 0x26): "MIFARE Mini",
-    (0xF0, 0x04): "Topaz and Jewel",
-    (0xF0, 0x11): "FeliCa 212K",
-    (0xF0, 0x11): "FeliCa 424K"
+    # key            card name           number of blocks of 16 bytes (memory)
+    (0x00, 0x01): ('MIFARE Classic 1K' , 0x040     ),
+    (0x00, 0x02): ('MIFARE Classic 4K' , 0x100     ),
+    (0x00, 0x03): ('MIFARE Ultralight' , 0xFFFFFFFF),
+    (0x00, 0x26): ('MIFARE Mini'       , 0xFFFFFFFF),
+    (0xF0, 0x04): ('Topaz and Jewel'   , 0xFFFFFFFF),
+    (0xF0, 0x11): ('FeliCa 212K'       , 0xFFFFFFFF),
+    (0xF0, 0x11): ('FeliCa 424K'       , 0xFFFFFFFF)
 }
 
 
@@ -161,7 +162,7 @@ class ACR122u:
 
 
     # ##########################################################################
-    # Commands
+    # Commands: Infos
     # ##########################################################################
     def get_uid(self):
         return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x00, 0x00, 0x00]))
@@ -169,7 +170,11 @@ class ACR122u:
     def get_ats(self):
         return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x01, 0x00, 0x00]))
 
-    def load_auth_key(self, key:list[int], /, key_number:int=0x00):
+
+    # ##########################################################################
+    # Commands: Authentication
+    # ##########################################################################
+    def __load_auth_key(self, key:list[int], /, key_number:int=0x00):
         """
             Loads authentication key into the reader volatile memory
             The key is a byte list (integeres) with length 6
@@ -183,7 +188,7 @@ class ACR122u:
         return ACR122u.parse_response(self.execute([0xFF, 0x82, 0x00, key_number, 0x06] + key))
 
 
-    def auth(self, block:int, key_type:int, /, key_number:int=0x00):
+    def __commit_auth(self, block:int, key_type:int, /, key_number:int=0x00):
         """
             According the documentation:
                 This command uses the keys stored in the reader to do
@@ -195,10 +200,45 @@ class ACR122u:
                 - block is the memory sector we which to unlock in the card
                 - key_type: TYPE_A = 0, TYPE_B = 1
         """
+        assert 0 <= block  <  self._block_max(), f'block size provided ({block}) is bigger than allowed ({self._block_max()})'
         return ACR122u.parse_response(self.execute([0xFF, 0x86, 0x00 , 0x00           , 0x05] + \
                                                    [0x01, 0x00, block, 0x60 + key_type, key_number]))
 
 
+    def auth(self, key:list[int], block:int, key_type:int):
+        """
+            Function joins loading the authentication key into volatile memory
+            And commits this key in order to unblock a specific memory sector
+                param key : list of integers with size 6
+                block     : any block id of the target sector
+                key_type  : 0 if TYPE_A, 1 if TYPE_B
+        """
+        result = self.__load_auth_key(key, key_number=key_type)
+        if result[-1] == 'Success':
+            result = self.__commit_auth(block, key_type, key_number=key_type)
+
+        return result
+
+
+    # ##########################################################################
+    # Commands: Data
+    # ##########################################################################
+    def block_read(self, block:int, length:int = 16):
+        """
+            Reads binary data from tag/card
+            The block index must be provided and it depends on the card type
+            The length is the size to read in that block. Its value can be from
+            0 to 16.
+        """
+        assert 0 <= block  <  self._block_max(), f'block size provided ({block}) is bigger than allowed ({self._block_max()})'
+        assert 0 <= length <= 16               , f'maximum length to read from block is 16'
+
+        return ACR122u.parse_response(self.execute([0xFF, 0xB0, 0x00, block, length]))
+
+
+    # ##########################################################################
+    # Commands: Reader only
+    # ##########################################################################
     @property
     def firmware(self):
         """
@@ -212,6 +252,20 @@ class ACR122u:
             self.__firmware = ''.join(chr(int(x, base=16)) for x in (result.data.split(' ') + [result.sw1, result.sw2]))
 
         return self.__firmware
+
+
+    def _block_max(self):
+        """
+            Returns the block size depending on card type
+        """
+        return self.__card.type[1] if self.__card else 0xFFFFFFFF
+
+
+    def _sector_max(self):
+        """
+            Returns the sector size depending on card type
+        """
+        return self._block_max() / 4
 
 
     # ##########################################################################
