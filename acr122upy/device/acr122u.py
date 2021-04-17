@@ -205,7 +205,7 @@ class ACR122u:
                                                    [0x01, 0x00, block, 0x60 + key_type, key_number]))
 
 
-    def auth(self, key:list[int], block:int, key_type:int):
+    def auth(self, key:list[int], /, block:int, key_type:int):
         """
             Function joins loading the authentication key into volatile memory
             And commits this key in order to unblock a specific memory sector

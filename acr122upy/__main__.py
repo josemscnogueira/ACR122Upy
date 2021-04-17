@@ -3,6 +3,7 @@ import sys
 from   time import sleep
 
 from .device.acr122u import ACR122u
+from .cards.mifare   import CardMifare
 
 """
     Definition of the main function body
@@ -21,7 +22,19 @@ def main():
     print('ats      =', reader.get_ats())
     print('\n\n\n')
 
-    authorization = reader.auth([0xFF] * 6, 0, 0)
+    # Search for keys
+    for block in range(64):
+        for ktype in range(2):
+            for key in CardMifare.default_keys():
+
+                if reader.auth(key, block=block, key_type=ktype)[-1] == 'Success':
+                    print(f'Found key!!!! = (block={block},key_type={ktype})={key}')
+                    break
+
+    return
+
+
+
     print('auth ='     , authorization)
     print('\n\n\n')
 
