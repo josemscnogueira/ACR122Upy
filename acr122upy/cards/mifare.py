@@ -109,6 +109,7 @@ class CardMifareClassic(ICard):
     __auth:int   = None
 
     __uid:tuple  = None
+    __labe:str   = None
     __bcc:int    = None
     __man:tuple  = None
 
@@ -121,6 +122,7 @@ class CardMifareClassic(ICard):
                   for a mathing UID
                 - Depends if there's an actual reader available
         """
+        self.__label = card_type
         if (card_type == 'MIFARE Classic 1K'):
             self.__blocks = 0x40  # 1KBytes
         elif (card_type == 'MIFARE Classic 4K'):
@@ -128,15 +130,19 @@ class CardMifareClassic(ICard):
         else:
             raise NotImplementedError
 
-        # Create keys for the first time
-        self.__keys = { b:None for b in range(self.__blocks) }
+        # Create keys for the first time (per block and type (A/B))
+        self.__keys = { (b,t):None for b in range(self.__blocks) \
+                                   for t in range(2)             }
 
         # If reader is availailable, let's get all authentication keys
-        if reader:
-            self.read_info(reader)
+        self.__uid = reader.get_uid() if reader else None
 
         # Unlock card using reader and/or path
         self.unlock(reader=reader, path=path)
+
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(uid={self.__uid},type={self.__label},unlocked={self.is_unlocked()})'
 
 
     # ##########################################################################
@@ -150,6 +156,58 @@ class CardMifareClassic(ICard):
         return self.__blocks != 0 and all((v is not None for v in self.__keys.values()))
 
 
+    def unlock(self, /, reader=None, path=None):
+        """
+            Gets authorization to read and write to card
+        """
+        if path:
+            raise NotImplementedError
+
+        if reader:
+            # Search for keys
+            for block in range(64):
+                for ktype in range(2):
+                    for key in CardMifareClassic.default_keys():
+                        if reader.auth(key, block=block, key_type=ktype):
+                            self.__keys[(block,ktype)] = key
+                            print(f'Unlocked key in {self}: block={block},type={ktype},key={key}')
+                            break
+
+
+    def block_read(self, block:int):
+        """
+            Reads binary data from block
+        """
+        raise NotImplementedError
+
+
+
+    def block_write(self, block:int, data:list[int]):
+        """
+            Writes binary data from block
+        """
+        raise NotImplementedError
+
+
+
+    def load_from_file(self, path:str):
+        """
+            Part of the deserialize API: read authentication and data from file
+        """
+        raise NotImplementedError
+
+
+
+    def save_to_file(self, path:str):
+        """
+            Part of the deserialize API: save authentication and data to file
+        """
+        raise NotImplementedError
+
+
+    # ##########################################################################
+    # Static methods
+    # ##########################################################################
     @staticmethod
     def default_keys():
         yield from _DEFAULT_KEYS

@@ -17,18 +17,10 @@ from smartcard.util             import toHexString
 from smartcard.ATR              import ATR
 
 
-
-_PARSER_CARD:dict = \
-{
-    # key            card name           number of blocks of 16 bytes (memory)
-    (0x00, 0x01): ('MIFARE Classic 1K' , 0x040     ),
-    (0x00, 0x02): ('MIFARE Classic 4K' , 0x100     ),
-    (0x00, 0x03): ('MIFARE Ultralight' , 0xFFFFFFFF),
-    (0x00, 0x26): ('MIFARE Mini'       , 0xFFFFFFFF),
-    (0xF0, 0x04): ('Topaz and Jewel'   , 0xFFFFFFFF),
-    (0xF0, 0x11): ('FeliCa 212K'       , 0xFFFFFFFF),
-    (0xF0, 0x11): ('FeliCa 424K'       , 0xFFFFFFFF)
-}
+# ##############################################################################
+# Prooject imports
+# ##############################################################################
+from ..cards.factory import CardFactory
 
 
 class ACR122u:
@@ -39,6 +31,7 @@ class ACR122u:
     __filter:str   = None
     __reader       = None
     __card         = None
+    __connection   = None
     __firmware:str = None
 
     def __init__(self, device='ACR122U', period=1):
@@ -72,6 +65,7 @@ class ACR122u:
                 print(f'Removed reader {self.__reader}')
                 self.__reader = None
 
+
     def update_card(self, cnew:Iterable = tuple(), cold:Iterable = tuple()):
         """
             ACR122u only reads a "card" -> tag at a time.
@@ -86,17 +80,18 @@ class ACR122u:
             assert len(list_cards) <= 1
 
             for card in list_cards:
-                card.type   = _PARSER_CARD.get(tuple(card.atr[-7:-5]), 'UNKNOWN')
-                self.__card = card
-                print(f'Added   card{card.__dict__}')
+                self.__connection = card
+                self.__card       = CardFactory.create(tuple(card.atr[-7:-5]), reader=self)
+                print(f'Added   card {self.__card}')
 
             # Remove cards if the card is inserted
-            list_cards = list(filter(lambda x: x == self.__card, cold))
+            list_cards = list(filter(lambda x: x == self.__connection, cold))
             assert len(list_cards) <= 1
 
             if len(list_cards) == 1:
-                self.__card = None
-                print(f'Removed card {list_cards[0]}')
+                print(f'Removed card {self.__card}')
+                self.__card       = None
+                self.__connection = None
 
 
     def _refreshed(self):
@@ -126,20 +121,20 @@ class ACR122u:
         t_start = time()
 
         while (time() - t_start) < timeout:
-            if self.__card:
-                self.__card.connection = self.__card.createConnection()
-                self.__card.connection.connect()
+            if self.__connection:
+                socket = self.__connection.createConnection()
+                socket.connect()
 
                 # Transmit command
                 try:
-                    return self.__card.connection.transmit(command)
+                    return socket.transmit(command)
                 finally:
-                    del self.__card.connection
+                    del socket
         # If the timeout was reached, let's raise exceptions:
         else:
             if not self.__reader:
                 raise Exception('No reader is connected with USB')
-            if not self.__card:
+            if not self.__connection:
                 raise Exception('No tag is connected')
             else:
                 raise Exception('Fatal error')
@@ -147,7 +142,9 @@ class ACR122u:
 
     @staticmethod
     def parse_response(response):
-        cmd_response    = namedtuple('cmd_response', ['data', 'sw1', 'sw2', 'message'] )
+        cmd_response          = namedtuple('cmd_response', ['data', 'sw1', 'sw2', 'message'] )
+        cmd_response.__bool__ = lambda x : x.message == 'Success'
+
         data, sw1, sw2  = response
         if (sw1, sw2) == (0x90, 0x00):
             message = 'Success'
@@ -165,10 +162,13 @@ class ACR122u:
     # Commands: Infos
     # ##########################################################################
     def get_uid(self):
-        return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x00, 0x00, 0x00]))
+        result = ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x00, 0x00, 0x00]))
+        return result.data if result else None
+
 
     def get_ats(self):
-        return ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x01, 0x00, 0x00]))
+        result = ACR122u.parse_response(self.execute([0xFF, 0xCA, 0x01, 0x00, 0x00]))
+        return result.data if result else None
 
 
     # ##########################################################################
@@ -200,7 +200,6 @@ class ACR122u:
                 - block is the memory sector we which to unlock in the card
                 - key_type: TYPE_A = 0, TYPE_B = 1
         """
-        assert 0 <= block  <  self._block_max(), f'block size provided ({block}) is bigger than allowed ({self._block_max()})'
         return ACR122u.parse_response(self.execute([0xFF, 0x86, 0x00 , 0x00           , 0x05] + \
                                                    [0x01, 0x00, block, 0x60 + key_type, key_number]))
 
@@ -214,7 +213,7 @@ class ACR122u:
                 key_type  : 0 if TYPE_A, 1 if TYPE_B
         """
         result = self.__load_auth_key(key, key_number=key_type)
-        if result[-1] == 'Success':
+        if result:
             result = self.__commit_auth(block, key_type, key_number=key_type)
 
         return result
@@ -230,9 +229,7 @@ class ACR122u:
             The length is the size to read in that block. Its value can be from
             0 to 16.
         """
-        assert 0 <= block  <  self._block_max(), f'block size provided ({block}) is bigger than allowed ({self._block_max()})'
-        assert 0 <= length <= 16               , f'maximum length to read from block is 16'
-
+        assert 0 <= length <= 16, f'maximum length to read from block is 16'
         return ACR122u.parse_response(self.execute([0xFF, 0xB0, 0x00, block, length]))
 
 
@@ -258,14 +255,7 @@ class ACR122u:
         """
             Returns the block size depending on card type
         """
-        return self.__card.type[1] if self.__card else 0xFFFFFFFF
-
-
-    def _sector_max(self):
-        """
-            Returns the sector size depending on card type
-        """
-        return self._block_max() / 4
+        return self.__connection.type[1] if self.__connection else 0xFFFFFFFF
 
 
     # ##########################################################################
